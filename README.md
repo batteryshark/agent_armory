@@ -1,12 +1,12 @@
-# Agent Armory
+# Agent Construct
 
 <p align="center">
   <img src="artwork/logo.png" alt="Logo" width="300"/>
 </p>
 
-> "Guns, lots of guns." - Neo
+> "We can load anything, from clothing to equipment, weapons, training simulations, anything we need." - The Matrix (1999)
 
-Agent Armory is a Model Context Protocol (MCP) server implementation that standardizes how AI applications access tools and context. Just as the Construct in The Matrix provided operators with instant access to any equipment they needed, The Armory provides a standardized interface for AI models to access tools and data through the MCP specification.
+Agent Construct is a Model Context Protocol (MCP) server implementation that standardizes how AI applications access tools and context. Just as the Construct in The Matrix provided operators with instant access to any equipment they needed, Agent Construct provides a standardized interface for AI models to access tools and data through the MCP specification.
 
 Built on the [Model Context Protocol](https://modelcontextprotocol.io/introduction) specification, it acts as a central hub that manages tool discovery, execution, and context management for AI applications. It provides a robust and scalable way to expose capabilities to AI models through a standardized protocol. It also provides a simplified configuration and tool structure to make adding new capabilities a breeze! An example tool for searching the web with Gemini is included.
 
@@ -42,8 +42,8 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io/introducti
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/agent-armory.git
-   cd agent-armory
+   git clone https://github.com/yourusername/agent-construct.git
+   cd agent-construct
    ```
 
 2. Install dependencies:
