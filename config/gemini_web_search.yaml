@@ -1,0 +1,18 @@
+# Gemini Web Search Tool Configuration
+
+# Rate limiting settings
+rate_limit: 15  # requests per time window
+time_window: 60  # time window in seconds
+
+# Search settings
+max_retries: 3
+timeout: 5  # seconds
+follow_redirects: true
+
+# Response settings
+max_references: 10
+include_confidence_scores: true 
+
+# Gemini API settings
+gemini_api_key: YOUR_API_KEY
+gemini_model: gemini-2.0-flash
