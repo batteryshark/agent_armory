@@ -12,6 +12,7 @@ from mcp_server.core.config import config
 from mcp_server.utils.rate_limiter import RateLimiter
 from mcp_server.utils.config_manager import config_manager
 import sys
+import json
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -22,7 +23,67 @@ class ToolManager:
     def __init__(self, server):
         self.server = server
         self.tools: Dict[str, dict] = {}
+        self.handlers: Dict[str, Callable] = {}  # Store handlers by tool name
         self.rate_limiters: Dict[str, RateLimiter] = {}
+        
+        # Register the global tool handler
+        @server.app.call_tool()
+        async def handle_tool(name: str, arguments: dict) -> list[mcp_types.TextContent]:
+            """Global tool handler that routes to the appropriate tool."""
+            logger.debug(f"Global handler received call for tool: {name}")
+            
+            if name not in self.tools:
+                error_msg = f"Unknown tool: {name}"
+                logger.error(error_msg)
+                return [mcp_types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "status": "error",
+                        "error": error_msg
+                    })
+                )]
+            
+            handler = self.handlers.get(name)
+            if not handler:
+                error_msg = f"Handler not found for tool: {name}"
+                logger.error(error_msg)
+                return [mcp_types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "status": "error",
+                        "error": error_msg
+                    })
+                )]
+            
+            # Apply rate limiting if configured
+            rate_limiter = self.rate_limiters.get(name)
+            if rate_limiter:
+                rate_limiter.wait_for_slot()
+            
+            try:
+                # Call the handler with the tool name and arguments
+                result = await handler(name, arguments)
+                if not result or not isinstance(result, list):
+                    error_msg = f"Handler for {name} returned invalid response"
+                    logger.error(error_msg)
+                    return [mcp_types.TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "error",
+                            "error": error_msg
+                        })
+                    )]
+                return result
+            except Exception as e:
+                error_msg = f"Error executing tool {name}: {str(e)}"
+                logger.error(error_msg)
+                return [mcp_types.TextContent(
+                    type="text",
+                    text=json.dumps({
+                        "status": "error",
+                        "error": error_msg
+                    })
+                )]
         
     def wrap_tool_handler(self, handler: Callable, tool_name: str) -> Callable:
         """Wrap a tool handler with rate limiting if configured."""
@@ -79,19 +140,28 @@ class ToolManager:
             # Load tool configuration from config directory
             tool_config = config_manager.get_tool_config(module_name, refresh=True)
             
-            # Store tool metadata from the decorated function
-            self.tools[module_name] = {
-                "name": tool_func.TOOL_NAME,
+            # Store tool metadata using the tool's name as the key
+            tool_name = tool_func.TOOL_NAME
+            self.tools[tool_name] = {
+                "name": tool_name,
                 "description": tool_func.TOOL_DESCRIPTION,
                 "schema": tool_func.TOOL_SCHEMA
             }
-            logger.debug(f"Stored metadata for tool: {tool_func.TOOL_NAME}")
+            logger.debug(f"Stored metadata for tool: {tool_name}")
             
-            # Register the tool with config
+            # Get the handler without registering it with the server
             handler = tool_func.register_tool(self.server.app, tool_config)
-            logger.debug(f"Successfully registered tool handler for: {tool_func.TOOL_NAME}")
+            self.handlers[tool_name] = handler
+            logger.debug(f"Successfully stored handler for: {tool_name}")
             
-            logger.info(f"Successfully loaded tool: {module_name}")
+            # Set up rate limiter if configured
+            if hasattr(tool_func, '_tool_metadata') and tool_func._tool_metadata.rate_limit:
+                self.rate_limiters[tool_name] = RateLimiter(
+                    tool_func._tool_metadata.rate_limit,
+                    tool_func._tool_metadata.rate_limit_window
+                )
+            
+            logger.info(f"Successfully loaded tool: {module_name} as {tool_name}")
             return True
             
         except Exception as e:
@@ -160,6 +230,7 @@ class ToolManager:
             
             # Clear tracking dicts
             self.tools.clear()
+            self.handlers.clear()
             self.rate_limiters.clear()
             logger.info("Cleared tool tracking dictionaries")
             
@@ -180,6 +251,7 @@ class ToolManager:
             if tool_name in self.tools:
                 # Remove from tracking dictionaries
                 self.tools.pop(tool_name, None)
+                self.handlers.pop(tool_name, None)
                 self.rate_limiters.pop(tool_name, None)
                 logger.info(f"Successfully unloaded tool: {tool_name}")
             else:

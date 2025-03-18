@@ -73,7 +73,7 @@ def mcp_tool(
             )
         
         # Store metadata
-        func._tool_metadata = ToolMetadata(
+        metadata = ToolMetadata(
             name=name,
             description=description,
             required_env_vars=required_env_vars or [],
@@ -82,35 +82,35 @@ def mcp_tool(
             rate_limit_window=rate_limit_window
         )
         
-        # Create schema from input model
-        func.TOOL_NAME = name
-        func.TOOL_DESCRIPTION = description
-        func.TOOL_SCHEMA = input_model.model_json_schema()
-        func.REQUIRED_ENV_VARS = required_env_vars or []
-        
         @functools.wraps(func)
         async def wrapped_func(*args, **kwargs):
             return await func(*args, **kwargs)
+            
+        # Transfer metadata to wrapped function
+        wrapped_func._tool_metadata = metadata
+        wrapped_func.TOOL_NAME = name
+        wrapped_func.TOOL_DESCRIPTION = description
+        wrapped_func.TOOL_SCHEMA = input_model.model_json_schema()
+        wrapped_func.REQUIRED_ENV_VARS = required_env_vars or []
         
         def register_tool(server, config: Dict[str, Any]):
-            """Register this tool with an MCP server instance."""
+            """Create and return a handler for this tool."""
             # Merge defaults with provided config
             tool_config = {
-                **func._tool_metadata.config_defaults,
+                **metadata.config_defaults,
                 **(config or {})
             }
             
-            @server.call_tool()
-            async def handle_tool(name: str, arguments: dict) -> list[mcp_types.TextContent]:
-                if name != func.TOOL_NAME:
-                    raise ValueError(f"Unknown tool: {name}")
+            # Create the handler function
+            async def handle_tool(tool_name: str, arguments: dict) -> list[mcp_types.TextContent]:
+                logger.debug(f"Tool handler called for {tool_name}")
                 
                 try:
                     # Validate input using the model
                     validated_input = input_model(**arguments)
                     
                     # Call the tool function with validated input and config
-                    result = await func(**validated_input.model_dump(), config=tool_config)
+                    result = await wrapped_func(**validated_input.model_dump(), config=tool_config)
                     
                     # Handle different return types
                     if isinstance(result, (str, int, float, bool)):
@@ -124,7 +124,7 @@ def mcp_tool(
                         text=json.dumps(result)
                     )]
                 except Exception as e:
-                    logger.error(f"Error in tool {name}: {str(e)}")
+                    logger.error(f"Error in tool {tool_name}: {str(e)}")
                     return [mcp_types.TextContent(
                         type="text",
                         text=json.dumps({
@@ -133,9 +133,10 @@ def mcp_tool(
                         })
                     )]
             
+            # Just return the handler, don't register it
             return handle_tool
         
-        # Attach registration function
+        # Attach registration function to wrapped function
         wrapped_func.register_tool = register_tool
         
         return wrapped_func
