@@ -124,7 +124,7 @@ async def search_web(query: str, config: Dict[str, Any]) -> Dict:
             # Generate content using Gemini
             response = client.models.generate_content(
                 model=config["gemini_model"],
-                contents=f"Search the web for this information and summarize what you find: {query}",
+                contents=f"{query}",
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())]
                 )
