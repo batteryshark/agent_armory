@@ -44,7 +44,7 @@ TOOL_NAME = "url_scraper"
     required_env_vars=[],
     config_defaults={},  # Config is now only defined in url_scraper.yaml
     rate_limit=50,
-    time_window=60
+    rate_limit_window=60
 )
 async def scrape_url(url: str, config: Dict[str, Any]) -> Dict:
     """Scrape content from a given URL with safety measures."""
