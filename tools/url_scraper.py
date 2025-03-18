@@ -1,125 +1,82 @@
 """
-URL Scraper Tool
+URL Scraper Tool - Converts webpage content to markdown
 """
-import os
+import re
+import json
 import logging
 import requests
-import re
-from typing import Dict, Any, Optional
-from urllib.parse import urlparse
+from typing import Dict, Any, List
+from markdownify import markdownify
+from requests.exceptions import RequestException
 from pydantic import BaseModel, Field
 from mcp_server.utils.tool_decorator import mcp_tool
+from mcp import types as mcp_types
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Define tool name as a constant
+TOOL_NAME = "url_scraper"
+
 class URLScraperInput(BaseModel):
     """Input model for URL scraping."""
-    url: str = Field(description="The URL to scrape")
+    url: str = Field(description="The URL of the webpage to scrape")
 
-def extract_title_from_html(html_content: str) -> Optional[str]:
-    """Extract title from HTML content using regex."""
-    title_match = re.search(r'<title[^>]*>([^<]+)</title>', html_content, re.IGNORECASE)
-    return title_match.group(1).strip() if title_match else None
+def scrape_url_impl(url: str, config: Dict[str, Any]) -> Dict:
+    """Implementation of the URL scraping functionality."""
+    try:
+        # Send GET request with configured headers
+        headers = {"User-Agent": config["user_agent"]}
+        response = requests.get(url, headers=headers, timeout=config["timeout"])
+        response.raise_for_status()
 
-def is_anti_bot_page(content: str) -> bool:
-    """Check if the page is an anti-bot protection page."""
-    anti_bot_indicators = [
-        "Attention Required! | Cloudflare",
-        "Just a moment...",
-        "Security check",
-        "Please verify you are a human",
-        "Access Denied",
-        "Bot Protection"
-    ]
-    return any(indicator in content for indicator in anti_bot_indicators)
+        # Convert HTML to markdown
+        markdown_content = markdownify(response.text).strip()
+        
+        # Clean up the markdown content
+        markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
 
-# Define the tool name as a constant to ensure consistency
-TOOL_NAME = "url_scraper"
+        return {
+            "status": "success",
+            "content": markdown_content
+        }
+    except RequestException as e:
+        logger.error(f"Error fetching webpage: {str(e)}")
+        return {
+            "status": "error",
+            "error": f"Error fetching webpage: {str(e)}"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error: {str(e)}")
+        return {
+            "status": "error",
+            "error": f"An unexpected error occurred: {str(e)}"
+        }
 
 @mcp_tool(
     name=TOOL_NAME,
-    description="Safely scrape content from a given URL",
+    description="Scrapes a webpage and returns its content as markdown",
     input_model=URLScraperInput,
     required_env_vars=[],
-    config_defaults={},  # Config is now only defined in url_scraper.yaml
+    config_defaults={
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "timeout": 10
+    },
     rate_limit=50,
     rate_limit_window=60
 )
 async def scrape_url(url: str, config: Dict[str, Any]) -> Dict:
-    """Scrape content from a given URL with safety measures."""
-    headers = {
-        "User-Agent": config["user_agent"],
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1"
-    }
-
-    for attempt in range(config["max_retries"]):
-        try:
-            # Validate URL
-            parsed_url = urlparse(url)
-            if not all([parsed_url.scheme, parsed_url.netloc]):
-                return {
-                    "status": "error",
-                    "error": "Invalid URL format"
-                }
-
-            # Make request with streaming to handle large responses
-            response = requests.get(
-                url,
-                headers=headers,
-                stream=True,
-                timeout=config["timeout"],
-                allow_redirects=config["follow_redirects"]
-            )
-            response.raise_for_status()
-
-            # Check for anti-bot protection
-            content = ""
-            size = 0
-            for chunk in response.iter_content(chunk_size=8192, decode_unicode=True):
-                if chunk:
-                    content += chunk
-                    size += len(chunk.encode('utf-8'))
-                    if size >= config["max_content_size"]:
-                        content = content[:config["max_content_size"]]
-                        break
-
-            if is_anti_bot_page(content):
-                return {
-                    "status": "error",
-                    "error": "Anti-bot protection detected"
-                }
-
-            # Extract title
-            title = extract_title_from_html(content)
-
-            return {
-                "status": "success",
-                "url": response.url,  # Final URL after redirects
-                "content": content,
-                "title": title
-            }
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Scraping attempt {attempt + 1} failed: {str(e)}")
-            if attempt == config["max_retries"] - 1:
-                return {
-                    "status": "error",
-                    "error": str(e)
-                }
-            continue
-        except Exception as e:
-            logger.error(f"Unexpected error during scraping: {str(e)}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }
-
-# Ensure tool metadata is properly set
-scrape_url.TOOL_NAME = TOOL_NAME
-scrape_url.TOOL_DESCRIPTION = "Safely scrape content from a given URL"
-scrape_url.TOOL_SCHEMA = URLScraperInput.model_json_schema()
-scrape_url.REQUIRED_ENV_VARS = [] 
+    """Scrape content from a URL and convert it to markdown.
+    
+    Args:
+        url: The URL to scrape
+        config: Configuration dictionary containing user_agent and timeout settings
+    
+    Returns:
+        Dictionary containing the scraped content and metadata
+    """
+    # Call the implementation function
+    result = scrape_url_impl(url, config)
+    
+    # Return the result in the format expected by the decorator
+    return result 
